@@ -41,9 +41,60 @@ client.retrieve('account', '53291AAB-4A9A-E311-B097-6C3BE5A8DD60')
 client.retrieve_multiple('account', [["name", "Equal", "Test Account"]])
 # => [#<DynamicsCRM::XML::Entity ... >]
 
-client.retrieve_multiple('account', [["name", "Equal", "Test Account"], ["Name, "CreatedBy"]])
+client.retrieve_multiple('account', [["name", "Equal", "Test Account"], ['salesstage', 'In', [0, 1, 2]]])
+# => [#<DynamicsCRM::XML::Entity ... >]
+
+client.retrieve_multiple('account', [["telephone1", "EndsWith", "5558675309"], ["mobilephone", "EndsWith", "5558675309"]], [], "Or")
 # => [#<DynamicsCRM::XML::Entity ... >]
 ```
+
+### retrieve_multiple using QueryExpression
+
+```ruby
+# Build QueryExpression
+query = DynamicsCRM::XML::QueryExpression.new('account')
+query.columns = %w(accountid name)
+query.criteria.add_condition('name', 'NotEqual', 'Test Account')
+# Optional PageInfo
+query.page_info = DynamicsCRM::XML::PageInfo.new(count: 5, page_number: 1, return_total_record_count: true)
+
+# Get first page
+result = client.retrieve_multiple(query)
+
+while result.MoreRecords
+  # Next page
+  query.page_info.page_number += 1
+  query.page_info.paging_cookie = result.PagingCookie
+
+  result = client.retrieve_multiple(query)
+end
+```
+
+### retrieve_multiple using complex Filters
+
+```ruby
+# Build QueryExpression
+query = DynamicsCRM::XML::QueryExpression.new('account')
+query.columns = %w(accountid name telephone1)
+# Switch to Or criteria
+query.criteria.filter_operator = 'Or'
+
+filter1 = DynamicsCRM::XML::FilterExpression.new('And')
+filter1.add_condition('name', 'Equal', 'Integration Specialists')
+filter1.add_condition('telephone1', 'In', ['(317) 845-2212', '3178452212'])
+
+filter2 = DynamicsCRM::XML::FilterExpression.new('And')
+filter2.add_condition('name', 'Equal', 'Thematics Development Inc.')
+filter2.add_condition('telephone1', 'Null')
+
+# Add Filters to criteria
+query.criteria.add_filter(filter1)
+query.criteria.add_filter(filter2)
+
+
+result = client.retrieve_multiple(query)
+```
+
 
 ### fetch (FetchXml)
 

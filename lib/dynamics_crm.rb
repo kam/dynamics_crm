@@ -4,13 +4,17 @@ require "dynamics_crm/xml/message_builder"
 require 'dynamics_crm/xml/message_parser'
 require "dynamics_crm/xml/fault"
 require "dynamics_crm/xml/attributes"
+require "dynamics_crm/xml/condition_expression"
 require "dynamics_crm/xml/column_set"
 require "dynamics_crm/xml/criteria"
-require "dynamics_crm/xml/query"
+require "dynamics_crm/xml/query_expression"
+require "dynamics_crm/xml/filter_expression"
 require "dynamics_crm/xml/fetch_expression"
 require "dynamics_crm/xml/entity"
 require "dynamics_crm/xml/entity_reference"
 require "dynamics_crm/xml/entity_collection"
+require "dynamics_crm/xml/money"
+require "dynamics_crm/xml/page_info"
 require "dynamics_crm/response/result"
 require "dynamics_crm/response/retrieve_result"
 require "dynamics_crm/response/retrieve_multiple_result"
@@ -30,6 +34,7 @@ require "dynamics_crm/metadata/retrieve_all_entities_response"
 require "dynamics_crm/metadata/retrieve_entity_response"
 require "dynamics_crm/metadata/retrieve_attribute_response"
 require "dynamics_crm/metadata/retrieve_metadata_changes_response"
+require "dynamics_crm/metadata/double"
 # Model
 require "dynamics_crm/model/entity"
 require "dynamics_crm/model/opportunity"
@@ -43,8 +48,8 @@ require "dynamics_crm/client"
 require 'bigdecimal'
 require 'base64'
 require "rexml/document"
-require 'mimemagic'
-require 'curl'
+require 'net/https'
+require 'marcel'
 require 'securerandom'
 require 'date'
 require 'cgi'

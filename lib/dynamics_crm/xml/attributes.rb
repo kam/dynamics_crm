@@ -11,6 +11,8 @@ module DynamicsCRM
       def get_type(key, value)
         type = "string"
         case value
+          when ::Array
+            type = "ArrayOfEntity"
           when ::Fixnum
             type = "int"
           when ::BigDecimal, ::Float
@@ -29,6 +31,10 @@ module DynamicsCRM
             type = "QueryExpression"
           when FetchExpression
             type = "FetchExpression"
+          when Money
+            type = "Money"
+          when DynamicsCRM::Metadata::Double
+            type = "double"
           when DynamicsCRM::Metadata::FilterExpression
             type = "FilterExpression"
           when DynamicsCRM::Metadata::PropertiesExpression
@@ -45,8 +51,8 @@ module DynamicsCRM
             end
         end
 
-        if type == "string" && value =~ /\w+{8}-\w+{4}-\w+{4}-\w+{4}-\w+{12}/
-          type = "guid"
+        if type == 'string' && value =~ /\A\{?\w{8}-\w{4}-\w{4}-\w{4}-\w{12}\}?\z/
+          type = 'guid'
         end
 
         type
@@ -75,7 +81,7 @@ module DynamicsCRM
           end
 
           # escape strings to avoid xml parsing errors
-          value = CGI.escapeHTML(value) if type == "string"
+          value = CGI.escapeHTML(value) if value.is_a?(String)
 
           xml << build_xml(key, value, type)
         end
@@ -109,6 +115,13 @@ module DynamicsCRM
       def render_value_xml(type, value)
         xml = ""
         case type
+        when "ArrayOfEntity"
+          raise "We can only serialize Entities inside of ArrayOfEntity" unless value.all?{|a| a.is_a?(DynamicsCRM::XML::Entity)}
+          xml << %Q{
+          <c:value i:type="a:ArrayOfEntity">
+              #{value.map(&->(_) { _.to_xml({in_array: true}) }).join}
+          </c:value>
+        }
         when "EntityReference"
           xml << %Q{
             <c:value i:type="a:EntityReference">
@@ -129,7 +142,11 @@ module DynamicsCRM
             s_namespace = "http://schemas.microsoft.com/xrm/2011/Metadata"
           end
 
-          if type == "guid"
+          if value.nil?
+            xml << %Q{
+              <c:value i:nil="true"></c:value>
+            }
+          elsif type == "guid"
             xml << %Q{
               <c:value xmlns:d="http://schemas.microsoft.com/2003/10/Serialization/" i:type="d:guid">#{value}</c:value>
             }
@@ -140,6 +157,10 @@ module DynamicsCRM
           elsif type == "dateTime"
             xml << %Q{
               <c:value i:type="s:#{type}" xmlns:s="http://www.w3.org/2001/XMLSchema">#{value.utc.strftime('%Y-%m-%dT%H:%M:%SZ')}</c:value>
+            }
+          elsif type == "double"
+            xml << %Q{
+              <c:value i:type="s:#{type}" xmlns:s="#{s_namespace}">#{value.value}</c:value>
             }
           else
             xml << %Q{
@@ -152,14 +173,14 @@ module DynamicsCRM
       end
 
       def render_object_xml(type, value)
-          case type
-          when "EntityQueryExpression"
-            xml = %Q{<c:value i:type="d:#{type}" xmlns:d="http://schemas.microsoft.com/xrm/2011/Metadata/Query">} << value.to_xml({namespace: 'd'}) << "</c:value>"
-          else
-            xml = %Q{<c:value i:type="a:#{type}">} << value.to_xml({exclude_root: true, namespace: 'a'}) << "</c:value>"
-          end
+        case type
+        when "EntityQueryExpression"
+          xml = %Q{<c:value i:type="d:#{type}" xmlns:d="http://schemas.microsoft.com/xrm/2011/Metadata/Query">} << value.to_xml({namespace: 'd'}) << "</c:value>"
+        else
+          xml = %Q{<c:value i:type="a:#{type}">} << value.to_xml({exclude_root: true, namespace: 'a'}) << "</c:value>"
+        end
 
-          return xml
+        xml
       end
 
       def class_name

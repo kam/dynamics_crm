@@ -13,7 +13,6 @@ require 'openssl'
 require 'open-uri'
 
 module DynamicsCRM
-
   class Client
     extend Forwardable
     include XML::MessageBuilder
@@ -22,6 +21,19 @@ module DynamicsCRM
     attr_reader :hostname, :region, :organization_endpoint, :login_url
 
     OCP_LOGIN_URL = 'https://login.microsoftonline.com/RST2.srf'
+
+    REGION = {
+      "crm11.dynamics.com" => "urn:crmgbr:dynamics.com",
+      "crm9.dynamics.com"  => "urn:crmgcc:dynamics.com",
+      "crm8.dynamics.com"  => "urn:crmind:dynamics.com",
+      "crm7.dynamics.com"  => "urn:crmjpn:dynamics.com",
+      "crm6.dynamics.com"  => "urn:crmoce:dynamics.com",
+      "crm5.dynamics.com"  => "urn:crmapac:dynamics.com",
+      "crm4.dynamics.com"  => "urn:crmemea:dynamics.com",
+      "crm3.dynamics.com"  => "urn:crmcan:dynamics.com",
+      "crm2.dynamics.com"  => "urn:crmsam:dynamics.com",
+      "crm.dynamics.com"   => "urn:crmna:dynamics.com",
+    }
 
     # Initializes Client instance.
     # Requires: organization_name
@@ -32,6 +44,7 @@ module DynamicsCRM
       @organization_name = config[:organization_name]
       @hostname = config[:hostname] || "#{@organization_name}.api.crm.dynamics.com"
       @organization_endpoint = "https://#{@hostname}/XRMServices/2011/Organization.svc"
+      REGION.default = @organization_endpoint
       @caller_id = config[:caller_id]
       @timeout = config[:timeout] || 120
 
@@ -53,7 +66,6 @@ module DynamicsCRM
     #
     # Returns true on success or raises Fault
     def authenticate(username, password)
-
       @username = username
       @password = password
 
@@ -83,7 +95,7 @@ module DynamicsCRM
         @timestamp = '<u:Timestamp xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" u:Id="_0"><u:Created>' + @header_current_time + '</u:Created><u:Expires>' + @header_expires_time + '</u:Expires></u:Timestamp>'
         @digest_value = Digest::SHA1.base64digest @timestamp
         @signature = '<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#"><CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#hmac-sha1"></SignatureMethod><Reference URI="#_0"><Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod><DigestValue>' + @digest_value + '</DigestValue></Reference></SignedInfo>'
-        @signature_value = Base64.encode64(OpenSSL::HMAC.digest(OpenSSL::Digest::Digest.new('sha1'), Base64.decode64(@server_secret), @signature)).chomp
+        @signature_value = Base64.encode64(OpenSSL::HMAC.digest(OpenSSL::Digest.new('sha1'), Base64.decode64(@server_secret), @signature)).chomp
       else
         cipher_values = document.get_elements("//CipherValue")
 
@@ -97,48 +109,49 @@ module DynamicsCRM
         end
       end
 
-
       true
     end
 
     # These are all the operations defined by the Dynamics WSDL.
     # Tag names are case-sensitive.
     def create(entity_name, attributes)
-
       entity = XML::Entity.new(entity_name)
       entity.attributes = XML::Attributes.new(attributes)
 
       xml_response = post(organization_endpoint, create_request(entity))
-      return Response::CreateResult.new(xml_response)
+      Response::CreateResult.new(xml_response)
     end
 
     # http://crmtroubleshoot.blogspot.com.au/2013/07/dynamics-crm-2011-php-and-soap-calls.html
     def retrieve(entity_name, guid, columns=[])
-
       column_set = XML::ColumnSet.new(columns)
       request = retrieve_request(entity_name, guid, column_set)
 
       xml_response = post(organization_endpoint, request)
-      return Response::RetrieveResult.new(xml_response)
+      Response::RetrieveResult.new(xml_response)
     end
 
     def rollup(target_entity, query, rollup_type="Related")
-        self.execute("Rollup", {
-          Target: target_entity,
-          Query: query,
-          RollupType: rollup_type
-        })
+      self.execute("Rollup", {
+        Target: target_entity,
+        Query: query,
+        RollupType: rollup_type
+      })
     end
 
-    def retrieve_multiple(entity_name, criteria=[], columns=[])
-
-      query = XML::Query.new(entity_name)
-      query.columns = columns
-      query.criteria = XML::Criteria.new(criteria)
+    # Suports parameter list or QueryExpression object.
+    def retrieve_multiple(entity_name, criteria = [], columns = [], operator = nil)
+      if entity_name.is_a?(XML::QueryExpression)
+        query = entity_name
+      else
+        query = XML::QueryExpression.new(entity_name)
+        query.columns = columns
+        query.criteria = XML::Criteria.new(criteria, filter_operator: operator)
+      end
 
       request = retrieve_multiple_request(query)
       xml_response = post(organization_endpoint, request)
-      return Response::RetrieveMultipleResult.new(xml_response)
+      Response::RetrieveMultipleResult.new(xml_response)
     end
 
     def fetch(fetchxml)
@@ -157,14 +170,14 @@ module DynamicsCRM
 
       request = update_request(entity)
       xml_response = post(organization_endpoint, request)
-      return Response::UpdateResponse.new(xml_response)
+      Response::UpdateResponse.new(xml_response)
     end
 
     def delete(entity_name, guid)
       request = delete_request(entity_name, guid)
 
       xml_response = post(organization_endpoint, request)
-      return Response::DeleteResponse.new(xml_response)
+      Response::DeleteResponse.new(xml_response)
     end
 
     def execute(action, parameters={}, response_class=nil)
@@ -172,19 +185,27 @@ module DynamicsCRM
       xml_response = post(organization_endpoint, request)
 
       response_class ||= Response::ExecuteResult
-      return response_class.new(xml_response)
+      response_class.new(xml_response)
     end
 
     def associate(entity_name, guid, relationship, related_entities)
       request = associate_request(entity_name, guid, relationship, related_entities)
       xml_response = post(organization_endpoint, request)
-      return Response::AssociateResponse.new(xml_response)
+      Response::AssociateResponse.new(xml_response)
     end
 
     def disassociate(entity_name, guid, relationship, related_entities)
       request = disassociate_request(entity_name, guid, relationship, related_entities)
       xml_response = post(organization_endpoint, request)
-      return Response::DisassociateResponse.new(xml_response)
+      Response::DisassociateResponse.new(xml_response)
+    end
+
+    def mimetype(path)
+      type = Marcel::MimeType.for Pathname.new(path)
+      # MimeMagic used to return nil for unknown file types, so we will too
+      return nil if type == 'application/octet-stream'
+
+      type
     end
 
     def create_attachment(entity_name, entity_id, options={})
@@ -206,10 +227,10 @@ module DynamicsCRM
 
       if file.respond_to?(:base_uri)
         file_name ||= File.basename(file.base_uri.path)
-        mime_type = MimeMagic.by_path(file.base_uri.path)
+        mime_type = mimetype(file.base_uri.path)
       elsif file.respond_to?(:path)
         file_name ||= File.basename(file.path)
-        mime_type = MimeMagic.by_path(file.path)
+        mime_type = mimetype(file.path)
       else
         raise "file must be a valid File object, file path or URL"
       end
@@ -304,50 +325,37 @@ module DynamicsCRM
     end
 
     def determine_region
-      case hostname
-      when /crm5\.dynamics\.com/
-        "urn:crmapac:dynamics.com"
-      when /crm4\.dynamics\.com/
-        "urn:crmemea:dynamics.com"
-      when /\.dynamics\.com/
-        "urn:crmna:dynamics.com"
-      else
-        organization_endpoint
-      end
+      hostname.match(/(crm(\d+)?\.dynamics.com)/)
+      REGION[$1]
     end
 
     def post(url, request)
-      log_xml("REQUEST", request)
+      log_xml('REQUEST', request)
+      uri = URI.parse(url)
 
-      c = Curl::Easy.new(url) do |http|
-        # Set up headers.
-        http.headers["Connection"] = "Keep-Alive"
-        http.headers["Content-type"] = "application/soap+xml; charset=UTF-8"
-        http.headers["Content-length"] = request.length
+      http = Net::HTTP.new uri.host, uri.port
+      http.use_ssl = true
+      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
 
-        http.ssl_verify_peer = false
-        http.timeout = timeout
-        http.follow_location = true
-        http.ssl_version = 1
-        # http.verbose = 1
-      end
+      req = Net::HTTP::Post.new(uri.request_uri,
+        'Connection' => 'Keep-Alive',
+        'Content-type' => 'application/soap+xml; charset=UTF-8',
+        'Content-length' => request.bytesize.to_s
+      )
+      req.body = request
+      response = http.request(req)
 
-      if c.http_post(request)
-        response = c.body_str
-      else
-        # Do something here on error.
-      end
-      c.close
+      response_body = response.body
+      log_xml('RESPONSE', response_body)
 
-      log_xml("RESPONSE", response)
-
-      response
+      response_body
     end
 
     def log_xml(title, xml)
       return unless logger
 
       logger.debug(title)
+
       doc = REXML::Document.new(xml)
       formatter.write(doc.root, logger)
       logger.debug("\n")
@@ -360,7 +368,5 @@ module DynamicsCRM
       end
       @formatter
     end
-
   end
-
 end
